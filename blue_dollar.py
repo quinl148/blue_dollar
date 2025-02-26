@@ -2,14 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 import streamlit as st
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import pandas as pd
 from selenium.webdriver.chrome.options import Options
-import os
-from PIL import Image
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Title of the app
 st.title("Dollar to Pesos Exchange Rate")
@@ -42,8 +42,8 @@ def fetch_exchange_rates():
         st.error(f"Error fetching exchange rates: {e}")
         return None, None
 
-# Function to fetch the graph as an image
-def fetch_graph_image():
+# Function to fetch historical data
+def fetch_historical_data():
     try:
         # Configure Chrome options
         chrome_options = Options()
@@ -51,7 +51,9 @@ def fetch_graph_image():
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         
-        driver = webdriver.Chrome(options=chrome_options)
+        # Use webdriver_manager to handle ChromeDriver installation
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.get(url)
 
         # Wait for chart to load
@@ -64,22 +66,22 @@ def fetch_graph_image():
         button.click()
         time.sleep(3)  # Wait for the chart to update
 
-        # Capture the screenshot of the chart
-        chart_element = driver.find_element(By.CLASS_NAME, "amcharts-chart-div")
-        chart_element.screenshot('chart.png')
+        # Extract chart data
+        chart_data = driver.execute_script("return AmCharts.charts[0].dataProvider || [];")
 
-        # Open the image and return it
-        img = Image.open('chart.png')
-        return img
+        if not chart_data:
+            st.error("No chart data found.")
+            return None
+
+        # Process and return chart data
+        return chart_data
 
     except Exception as e:
-        st.error(f"Error in fetching graph image: {str(e)}")
+        st.error(f"Error in historical data extraction: {str(e)}")
         return None
     finally:
         if 'driver' in locals():
             driver.quit()
-        if os.path.exists('chart.png'):
-            os.remove('chart.png')  # Clean up the image file
 
 # Create two columns
 col1, col2 = st.columns([1, 2])
@@ -96,11 +98,30 @@ if st.button("Get Rates and Calculate Pesos"):
             st.write(f"You will receive this many pesos: **{pesos_received:.2f}**")
     
     with col2:
-        with st.spinner('Fetching graph image...'):
-            graph_image = fetch_graph_image()
+        with st.spinner('Fetching historical data...'):
+            historical_data = fetch_historical_data()
             
-            if graph_image:
-                st.image(graph_image, caption='Historical Exchange Rate (Last 1 Year)')
+            if historical_data:
+                try:
+                    # Convert to DataFrame and show raw data
+                    st.write("Raw data shape:", len(historical_data))
+                    
+                    df = pd.DataFrame(historical_data)
+                    st.write("DataFrame head:", df.head())
+                    st.write("DataFrame columns:", df.columns.tolist())
+                    
+                    # Try to create the chart
+                    if 'date' in df.columns and 'value' in df.columns:
+                        df['date'] = pd.to_datetime(df['date'])  # Convert to datetime
+                        st.line_chart(df.set_index('date')['value'])
+                        st.caption("Historical Exchange Rate (Last 1 Year)")
+                    else:
+                        st.error("Data format incorrect. Expected 'date' and 'value' columns.")
+                        st.write("Available columns:", df.columns.tolist())
+                except Exception as e:
+                    st.error(f"Error creating chart: {str(e)}")
+                    st.write("Data type:", type(historical_data))
+                    st.write("Data preview:", historical_data[:5])
 
 # Add information about the data source
 st.markdown("---")
