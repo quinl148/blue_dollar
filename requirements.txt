@@ -1,6 +1,6 @@
-streamlit
 requests
 beautifulsoup4
+streamlit
 selenium
 pandas
-Pillow
+webdriver-manager
